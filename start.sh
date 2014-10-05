@@ -4,6 +4,8 @@
 # Licensed under the BSD 3-Clause License (see LICENSE)
 
 Execs=('gcnirc' 'gcnweb' 'gcnftp' 'gcnhub') #'gcnguest' 
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+export PYTHONPATH=DIR:$PYTHONPATH
 
 echo "Killing old executables..."
 for Exec in "${Execs[@]}"
