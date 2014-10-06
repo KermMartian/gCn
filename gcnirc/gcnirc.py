@@ -139,21 +139,8 @@ class StatBot ( ircbot.SingleServerIRCBot ):
 		if message[:3] == "!me" or message[:3] == "/me":
 			message = message[4:]
 			#connection.privmsg(CHANNEL,message)
-
 			gcnpost(sid,source,message,2)
-
-		elif message[:5] == "?slap":
-			message = "slaps " + message[5:] + " upside the head with a " + self.randomAdj() + " " + self.randomFish() + "!"
-			connection.privmsg(CHANNEL,message)
-
-			gcnpost(sid,source,message,2)
-
-		elif message.upper()[:8] == "WHERE IS" or message.upper()[:7] == "WHAT IS" or message.upper()[:6] == "WHO IS" or message.upper()[:5] == "WHO'S" or message.upper()[:6] == "WHAT'S" or message.upper()[:7] == "WHERE'S" or message.upper()[:3] == "!PM" or message.upper()[:5] == "!CALC":
-
-			gcnpost(sid,source,message,1)
-
 		else:
-
 			gcnpost(sid,source,message,1)
 
 	def _on_join(self, c, e):
