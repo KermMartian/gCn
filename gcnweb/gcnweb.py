@@ -16,14 +16,18 @@ import random
 import signal
 import string
 import re
+import ssl
 import copy
 from htmlentitydefs import name2codepoint as n2cp
 from subprocess import *
 from logging import *
 
+USINGSSL = True
 #gcn info
 GCNSERVER = "gcnhub.cemetech.net"
 GCNPORT = 4295
+if USINGSSL:
+	GCNPORT = 4296
 GCNREMOTE = "WebHub"
 GCNLOCAL = "WebHub"
 allcalcs = dict()
@@ -203,10 +207,9 @@ def start():
 	log_info('gcnweb: gCn manager started.')
 
 class gCnManage(threading.Thread):
-        def __init__(self):
-                threading.Thread.__init__(self)
-
-        def run(self):
+	def __init__(self):
+		threading.Thread.__init__(self)
+	def run(self):
 		global GCNSERVER
 		global GCNPORT
 		global GCNLOCAL
@@ -218,7 +221,9 @@ class gCnManage(threading.Thread):
 		#create an INET, STREAMing socket
 		log_info('gcnweb: starting gCn client')
 		clientsocket = socket.socket(
-		    socket.AF_INET, socket.SOCK_STREAM)
+			socket.AF_INET, socket.SOCK_STREAM)
+		if USINGSSL:
+			clientsocket = ssl.wrap_socket(clientsocket)
 		#bind the socket to a public host,
 		# and a well-known port
 		clientsocket.connect((GCNSERVER,GCNPORT))
