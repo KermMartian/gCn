@@ -35,6 +35,7 @@ import string
 import re
 import copy
 import zipfile
+import ssl
 from htmlentitydefs import name2codepoint as n2cp
 from subprocess import *
 from logging import *
@@ -46,10 +47,12 @@ from calcrepo.cemetech import *
 from calcrepo.ticalc import *
 from calcrepo.index import ResultType
 from calcrepo.info import FileInfo
-
+USESSL = True
 #gcn info
 GCNSERVER = "gcnhub.cemetech.net"
 GCNPORT = 4295
+if USESSL:
+	GCNPORT = 4296
 GCNREMOTE = "FTPHub"
 GCNLOCAL = "FTPHub"
 
@@ -116,7 +119,7 @@ def outtoclient(type,seq,contents,sid,gcnlock,clientsocket):
 	else:
 		thisoutmsg = chr(type) + chr(seq) + contents
 	outmsghdr = chr(0xAA)+chr(0xAA)+chr(0xAA)+chr(0xAA)+chr(0xAA)+\
-                chr(len(thisoutmsg)&0x00ff)+chr((len(thisoutmsg)>>8)&0x00ff)
+		chr(len(thisoutmsg)&0x00ff)+chr((len(thisoutmsg)>>8)&0x00ff)
 	outmsghdr = outmsghdr + thisoutmsg
 	#print "Forwarding '"+outmsghdr+"' to '"+calc5to10(sid)+"'"
 	thismsg = chr(255)+chr(137)+sid+outmsghdr+chr(42)
@@ -185,18 +188,21 @@ class gCnManage(threading.Thread):
 		global GCNPORT
 		global GCNLOCAL
 		global GCNREMOTE
+		global USESSL
 
 		#create an INET, STREAMing socket
 		log_info("gcnftp: starting gCn client")
 		self.clientsocket_ = socket.socket(
 		    socket.AF_INET, socket.SOCK_STREAM)
+		if USESSL:
+			self.clientsocket_ = ssl.wrap_socket(self.clientsocket_)
 		#bind the socket to a public host,
 		# and a well-known port
 		self.clientsocket_.connect((GCNSERVER,GCNPORT))
 
 		#gCn join
 		joinmsg = chr(2+len(GCNREMOTE)+len(GCNLOCAL))+chr(0)+'j'+chr(len(GCNREMOTE))+\
-		          GCNREMOTE+chr(len(GCNLOCAL))+GCNLOCAL
+			  GCNREMOTE+chr(len(GCNLOCAL))+GCNLOCAL
 		self.clientsocket_.sendall(joinmsg)
 		time.sleep(0.1);
 
@@ -275,11 +281,11 @@ class gCnManage(threading.Thread):
 
 							if not(isinstance(calcinfo[6],FileInfo)):
 								log_error("gcnftp: "+self.archive_+": "+calc10+" requested file %s, type %d" \
-								          " but wasn't in a (zip) folder" % (calcdecode(thismsg[16:16+8]), thismsg[15]))
+									  " but wasn't in a (zip) folder" % (calcdecode(thismsg[16:16+8]), thismsg[15]))
 							else:
 								fileinfo = calcinfo[6]
 								log_info("gcnftp: "+self.archive_+": "+calc10+" requesting file %s, type %d" \
-								         " from (zip '%s') folder" % (calcdecode(thismsg[16:16+8]), ord(thismsg[15]), fileinfo.fileUrl))
+									 " from (zip '%s') folder" % (calcdecode(thismsg[16:16+8]), ord(thismsg[15]), fileinfo.fileUrl))
 								subpath = fileinfo.fileSubPath
 								typedec = ord(thismsg[15])
 								typestr = self.fileTypeDec2Str(typedec)
@@ -300,18 +306,18 @@ class gCnManage(threading.Thread):
 								if None == outline:
 									log_error("gcnftp: "+self.archive_+": "+calc10+"'s requested file could not be located.")
 									outtoclient(13,-1,chr(0)+chr(0xFF)+chr(0xFF)+chr(0xFF)+chr(0xFF),\
-									            calc5,self.gcnlock_,self.clientsocket_)		#reject
+										    calc5,self.gcnlock_,self.clientsocket_)		#reject
 								else:
 									startaddr = 0x37 + ord(fileline[4][0x37]) + 0x02
 									varlen = ledestringify(fileline[4][startaddr:startaddr+2])
 									if varlen + 32 > ledestringify(thismsg[25:27]):
 										outtoclient(13,-1,chr(0)+chr(0xFF)+chr(0xFF)+chr(0xFF)+chr(0xFF),\
-										            calc5,self.gcnlock_,self.clientsocket_)     #reject
+											    calc5,self.gcnlock_,self.clientsocket_)     #reject
 									else:
 										datalen = ledestringify(fileline[4][startaddr:startaddr+2])
 										outtoclient(13,-1,chr(1)+fileline[4][startaddr+2:startaddr+4]+\
-										            fileline[4][startaddr:startaddr+2],calc5,\
-										            self.gcnlock_,self.clientsocket_)     #reject
+											    fileline[4][startaddr:startaddr+2],calc5,\
+											    self.gcnlock_,self.clientsocket_)     #reject
 										data = fileline[4][startaddr+2:startaddr+2+datalen]
 										sent = 0
 										while sent < datalen:
@@ -374,7 +380,7 @@ class gCnManage(threading.Thread):
 			fld_lo0 = fld_lo
 			try:
 				multipart =  1 if (calcinfo[6][0][0][0:6] == "NEXT_(" or \
-				                   calcinfo[6][0][0][0:6] == "PREV_(") else 0
+						   calcinfo[6][0][0][0:6] == "PREV_(") else 0
 				multipart += 1 if (calcinfo[6][1][0][0:6] == "NEXT_(") else 0
 				newoffset = 0
 				if calcinfo[6][0][0][0:6] == "PREV_(":
@@ -449,7 +455,7 @@ class gCnManage(threading.Thread):
 		# And send!
 		if len(fldinfo) > 250:
 			log_warn("gcnftp: " + self.archive_ + ": Emitting part %d of multipart large " \
-			         "(%d-item) directory" % (offset+1, len(fldinfo)))
+				 "(%d-item) directory" % (offset+1, len(fldinfo)))
 
 		outstr, count = self.foldersToSPFldList(fldinfo,multipart,offset)
 
@@ -633,7 +639,7 @@ class gCnManage(threading.Thread):
 		should itself be a [path, name] list.
 		'''
 		makeData = lambda fileline: chr(5) + chr(0x0A) + chr(min(9,1+len(fileline[1]))) + \
-						            chr(count) + fileline[1][0:min(8,len(fileline[1]))]
+							    chr(count) + fileline[1][0:min(8,len(fileline[1]))]
 
 		outstr = ""
 		count = 0
@@ -680,7 +686,7 @@ class gCnManage(threading.Thread):
 				if len(fldname) > 8:
 					fldname = fldname[0:7] + '/'
 				outstr += chr(5) + chr(0x0E) + chr(min(9,1+len(fldname))) + \
-				          chr(count+1) + fldname				#+1 because special folder 00 is normal folder 01.
+					  chr(count+1) + fldname				#+1 because special folder 00 is normal folder 01.
 
 			else:									#file
 				if fileline[2][0:2] == "8x" and fileline[3] == True:

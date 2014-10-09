@@ -32,7 +32,7 @@ SILENTMODE = 0
 COOKIEFILE = 'cookies.lwp'
 
 #phpBB/SAX-related things
-#from hubsecret import *
+from hubsecret import *
 
 #stats tracking
 import sched, time
@@ -273,7 +273,7 @@ def startSSL():
 		(clientsocket, address) = serversslsocket.accept()
 		#now do something with the clientsocket
 		#in this case, we'll pretend this is a threaded server
-		ct = client_thread(clientsocket,address, True)
+		ct = client_thread(clientsocket,address)
 		ct.start()
 
 def start():
@@ -300,7 +300,7 @@ def start():
 		(clientsocket, address) = serversocket.accept()
 		#now do something with the clientsocket
 		#in this case, we'll pretend this is a threaded server
-		ct = client_thread(clientsocket,address, False)
+		ct = client_thread(clientsocket,address)
 		ct.start()
 
 class stats_thread(threading.Thread):
@@ -327,11 +327,10 @@ class stats_thread(threading.Thread):
 			time.sleep(60)
 
 class client_thread(threading.Thread):
-	def __init__(self,client,address, sslornot):
+	def __init__(self,client,address):
 		threading.Thread.__init__(self)
 		self.client = client
-		if not sslornot:
-                        self.client.setblocking(0)		#set non-blocking
+		self.client.setblocking(0)		#set non-blocking
 		self.address = address
 		self.size = 1024
 		self.hubname = ""
@@ -355,6 +354,10 @@ class client_thread(threading.Thread):
 			except socket.error as (errnum,errstr):
 				if errnum == errno.EWOULDBLOCK:
 					continue;
+				data = 0
+			except ssl.SSLError as e :
+				if e.errno == ssl.SSL_ERROR_WANT_READ:
+					continue
 				data = 0
 			if data:
 				#self.client.send(data)
