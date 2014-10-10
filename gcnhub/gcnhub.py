@@ -45,11 +45,10 @@ ClientCookie = None
 cookielib = None
 
 #gcn tracking
-HOSTNAME = "gcnhub.cemetech.net"
 GCNPORT = 4295
 SSLPORT = 4296
 vhublist = dict()
-vhublock = threading.Lock()
+#vhublock = threading.Lock()
 
 def shortcreateurls(input):
 	curloc = 0
@@ -252,15 +251,28 @@ def statswrite():
 	saxpost(0,"gCn",saxmsg,1);
 
 def startSSL():
+	global client
+	global sid
+	vhublist = dict()
+	#vhublock = threading.Lock()
+
+	ss = stats_thread()
+	ss.start()
 	#create an INET, STREAMing socket
 	serversslsocket = socket.socket(
 	    socket.AF_INET, socket.SOCK_STREAM)
-	if len(CERTFILE) <= 0 or len(KEYFILE) <= 0:
-		log_error("Must specify both KEYFILE and CERTFILE for SSL")
+	#if len(CERTFILE) <= 0 or len(KEYFILE) <= 0:
+	#	log_error("Must specify both KEYFILE and CERTFILE for SSL")
+	#	return
+	if KEYFILE != "" and CERTFILE != "":
+		serversslsocket = ssl.wrap_socket(serversslsocket, keyfile=KEYFILE, certfile=CERTFILE)
+	elif KEYFILE == "" and CERTFILE != "":
+		serversslsocket = ssl.wrap_socket(serversslsocket, certfile=CERTFILE)
+	else :
+		log_error("You must have at least a certfile specified.  Additionally, the certfile must have the key included if no keyfile is used")
 		return
-
-	serversslsocket = ssl.wrap_socket(serversslsocket, keyfile=KEYFILE, certfile=CERTFILE)
 	serversslsocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+	thread.start_new_thread(start, ())
 	#bind the socket to a public host,
 	# and a well-known port
 	serversslsocket.bind((HOSTNAME, SSLPORT))
@@ -277,13 +289,7 @@ def startSSL():
 		ct.start()
 
 def start():
-	global client
-	global sid
-	vhublist = dict()
-	vhublock = threading.Lock()
 
-	ss = stats_thread()
-	ss.start()
 
 	#create an INET, STREAMing socket
 	serversocket = socket.socket(
@@ -294,7 +300,6 @@ def start():
 	serversocket.bind((HOSTNAME, GCNPORT))
 	#become a server socket
 	serversocket.listen(5)
-	thread.start_new_thread(startSSL, ())
 	while 1==1:
 		#accept connections from outside
 		(clientsocket, address) = serversocket.accept()
@@ -330,7 +335,7 @@ class client_thread(threading.Thread):
 	def __init__(self,client,address):
 		threading.Thread.__init__(self)
 		self.client = client
-		self.client.setblocking(0)		#set non-blocking
+		#self.client.setblocking(0)		#set non-blocking
 		self.address = address
 		self.size = 1024
 		self.hubname = ""
@@ -347,18 +352,9 @@ class client_thread(threading.Thread):
 		recbufqueue = 0
 		while running:
 			time.sleep(0.02);
-			try:
-				data = self.client.recv(self.size)
-				recbuf = recbuf + data
-				recbufqueue += len(data)
-			except socket.error as (errnum,errstr):
-				if errnum == errno.EWOULDBLOCK:
-					continue;
-				data = 0
-			except ssl.SSLError as e :
-				if e.errno == ssl.SSL_ERROR_WANT_READ:
-					continue
-				data = 0
+			data = self.client.recv(self.size)
+			recbuf = recbuf + data
+			recbufqueue += len(data)
 			if data:
 				#self.client.send(data)
 				#print "Received data of length "+str(len(data))+" from "+self.hubname+"."+self.localname
@@ -379,7 +375,7 @@ class client_thread(threading.Thread):
 				log_info("gcnhub: [THREAD] Closing on "+self.address[0]+":"+str(self.address[1])+"")
 				if self.joined == 1:
 					
-					vhublock.acquire()
+					#vhublock.acquire()
 					try:
 						del vhublist[self.hubname][self.addrport]
 					except KeyError:
@@ -390,7 +386,7 @@ class client_thread(threading.Thread):
 						saxmsg = "lost its final client endpoint '"+self.localname+"' and was destroyed"
 					else:
 						saxmsg = "lost a client endpoint '"+self.localname+"'"
-					vhublock.release()
+					#vhublock.release()
 
 					#saxpost(0,"gCn virtual hub '"+self.hubname+"'",saxmsg,2);
 				running = 0 
@@ -413,7 +409,7 @@ class client_thread(threading.Thread):
 			   len(self.hubname) > 0 and len(self.hubname) < 16:
 				log_info("gcnhub: [MSG] Join from "+self.addrport+": "+self.localname+"->"+self.hubname)
 
-				vhublock.acquire();
+				#vhublock.acquire();
 				if (vhublist.has_key(self.hubname)):
 					vhublist[self.hubname][self.addrport] = self
 					saxmsg = "has a new client endpoint '"+self.localname+"'"
@@ -422,7 +418,7 @@ class client_thread(threading.Thread):
 					thisclientdict[self.addrport] = self
 					vhublist[self.hubname] = thisclientdict
 					saxmsg = "has been created with a new client endpoint '"+self.localname+"'"
-				vhublock.release();
+				#vhublock.release();
 				self.joined = 1
 			else:
 				log_warn("gcnhub: [MSG] INVALID join from "+self.addrport+": "+self.localname+"->"+self.hubname)
@@ -437,14 +433,14 @@ class client_thread(threading.Thread):
 			else:
 				log_info("gcnhub: [MSG] "+self.addrport+" is adding calculator "+msg+"...")
 				sendsax = 0
-				vhublock.acquire()
+				#vhublock.acquire()
 				if not(msg in self.calclist):
 					sendsax = 1
 					st_calcs+=1
 					if st_calcs > st_maxcalcs:
 						st_maxcalcs = st_calcs
 					self.calclist.append(msg)
-				vhublock.release()
+				#vhublock.release()
 
 				if sendsax == 1:
 					saxpost(0,"gCn virtual hub '"+self.hubname+"'","has new calculator "+msg+" from "+self.localname,2)
@@ -455,7 +451,7 @@ class client_thread(threading.Thread):
 			elif datalen > 256+5+5+2+3:
 				log_warn("gcnhub: [MSG] "+self.addrport+" sent an overflow-length broadcast")
 			else:
-				vhublock.acquire()
+				#vhublock.acquire()
 				for key in vhublist[self.hubname].keys():
 					if vhublist[self.hubname][key] != self:
 						#SEND BROADCAST
@@ -470,7 +466,7 @@ class client_thread(threading.Thread):
 							#saxpost(0,"gCn virtual hub '"+self.hubname+"'",saxmsg,2);
 							
 						
-				vhublock.release()
+				#vhublock.release()
 				#print "[BROADCAST] ("+self.addrport+") "+self.hubname+"."+self.localname+"->"+self.hubname+", "+str(datalen)+" bytes"
 		elif msgtype == 'f':
 			#Normal directed frame
@@ -481,7 +477,7 @@ class client_thread(threading.Thread):
 			else:
 				desthex = "%02X%02X%02X%02X%02X" % (ord(msg[2]),ord(msg[3]),ord(msg[4]),ord(msg[5]),ord(msg[6]))
 				srchex = "%02X%02X%02X%02X%02X" % (ord(msg[7]),ord(msg[8]),ord(msg[9]),ord(msg[10]),ord(msg[11]))
-				vhublock.acquire()
+				#vhublock.acquire()
 				for key in vhublist[self.hubname]:
 					if vhublist[self.hubname][key] != self and desthex in vhublist[self.hubname][key].calclist:
 						#SEND BROADCAST
@@ -498,7 +494,7 @@ class client_thread(threading.Thread):
 
 						break
 						
-				vhublock.release()
+				#vhublock.release()
 		else:
 			log_warn("gcnhub: [MSG] Unknown message of length "+str(len(data))+"")
 		return;
@@ -508,4 +504,4 @@ def signal_handler(signal, frame):
 	sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
-start()
+startSSL()
