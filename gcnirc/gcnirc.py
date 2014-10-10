@@ -47,10 +47,11 @@ QUIZBOT="Melisma"
 quizactive = 0
 
 #phpBB
+warnlist = []				# Stores which users have been warned
 from hubsecret import *
 
-USESSL = True
 #gcn info
+USESSL = True
 GCNSERVER = "gcnhub.cemetech.net"
 GCNPORT = 4295
 if USESSL:
@@ -469,7 +470,6 @@ def start():
 	global client
 	global saxbot
 	global sid
-	global PHPBBHOST
 	global LOGINPATH
 	global PASSWORD
 	global BOTNETPASS
@@ -646,21 +646,4 @@ def decode_htmlentities(string):
 		return retval
 
 while 1==1:
-#	try:
 	start()
-#	except ControlRestart:
-#		print "restarting"
-#		try:
-#			client.connection.quit("goodbye")
-#		except Exception,e:
-#			print "IRC quit already"
-#		try:
-#			saxbot.stop()
-#		except:
-#			print "saxbot stopped already"
-#		print ""
-#		start()
-#	except:
-#		print "EPIC FAILURE:"
-#		print sys.exc_info()[0]
-#		exit(0);

@@ -23,9 +23,6 @@ import errno
 import ssl
 from logging import *
 
-CERTFILE = "cert.pem"
-KEYFILE = ""
-
 #set to 1 for no SAX connection, 0 for normal operation
 SILENTMODE = 0
 
@@ -207,10 +204,11 @@ def saxpost(sid,source,message,type):
 	if kickthem == 1:
 		return
 
+	# Construct the outgoing request and send it
 	message = urllib.urlencode({'message' : shortcreateurls(message)})
 	who = urllib.urlencode({'who' : source})
 	type = urllib.urlencode({'type' : type})
-	theurl = PHPBBHOST+SAXSAY+'?key=' + SAXKEY + '&'+message+'&'+who+'&'+type
+	theurl = SAXHOST + SAXSAY + '?key=' + SAXKEY + '&' + message + '&' + who + '&' + type
 	txdata = None
 	txheaders =  {'User-agent' : 'Mozilla/4.0 (compatible; MSIE 5.5; Windows NT)'}
 	try:
