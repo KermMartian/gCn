@@ -205,35 +205,36 @@ def saxpost(sid,source,message,type):
 		return
 
 	# Construct the outgoing request and send it
-	message = urllib.urlencode({'message' : shortcreateurls(message)})
-	who = urllib.urlencode({'who' : source})
-	type = urllib.urlencode({'type' : type})
-	theurl = SAXHOST + SAXSAY + '?key=' + SAXKEY + '&' + message + '&' + who + '&' + type
-	txdata = None
-	txheaders =  {'User-agent' : 'Mozilla/4.0 (compatible; MSIE 5.5; Windows NT)'}
-	try:
-		req = Request(theurl, txdata, txheaders)
-		# create a request object
-	
-		handle = urlopen(req)
-		# and open it to return a handle on the url
-	
-	except IOError, e:
-		log_error('gcnhub: We failed to open "%s".' % theurl)
-		if hasattr(e, 'code'):
-			log_error('gcnhub: We failed with error code - %s.' % e.code)
-		elif hasattr(e, 'reason'):
-			log_error("gcnhub: The error object has the following 'reason' attribute :"+e.reason)
-			log_error("gcnhub: This usually means the server doesn't exist,',")
-			log_error("is down, or we don't have an internet connection.")
-		sys.exit()
-	else:
-		returned = handle.readline()
-		if returned[0:2] != 'OK':
-			returned = "Cemetech: " + returned
-			log_error("gchub: "+returned)
-			client.connection.privmsg(CHANNEL,"ERROR: "+returned)
-			raise Exception,returned
+	if USESAX:
+		message = urllib.urlencode({'message' : shortcreateurls(message)})
+		who = urllib.urlencode({'who' : source})
+		type = urllib.urlencode({'type' : type})
+		theurl = SAXHOST + SAXSAY + '?key=' + SAXKEY + '&' + message + '&' + who + '&' + type
+		txdata = None
+		txheaders =  {'User-agent' : 'Mozilla/4.0 (compatible; MSIE 5.5; Windows NT)'}
+		try:
+			req = Request(theurl, txdata, txheaders)
+			# create a request object
+		
+			handle = urlopen(req)
+			# and open it to return a handle on the url
+		
+		except IOError, e:
+			log_error('gcnhub: We failed to open "%s".' % theurl)
+			if hasattr(e, 'code'):
+				log_error('gcnhub: We failed with error code - %s.' % e.code)
+			elif hasattr(e, 'reason'):
+				log_error("gcnhub: The error object has the following 'reason' attribute :"+e.reason)
+				log_error("gcnhub: This usually means the server doesn't exist,',")
+				log_error("is down, or we don't have an internet connection.")
+			sys.exit()
+		else:
+			returned = handle.readline()
+			if returned[0:2] != 'OK':
+				returned = "Cemetech: " + returned
+				log_error("gchub: "+returned)
+				client.connection.privmsg(CHANNEL,"ERROR: "+returned)
+				raise Exception,returned
 
 def statswrite():
 	global st_bytesin
