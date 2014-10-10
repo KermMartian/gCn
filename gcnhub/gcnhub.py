@@ -255,10 +255,11 @@ def startSSL():
 	#create an INET, STREAMing socket
 	serversslsocket = socket.socket(
 	    socket.AF_INET, socket.SOCK_STREAM)
-	if KEYFILE:
-		serversslsocket = ssl.wrap_socket(serversslsocket, keyfile=KEYFILE, certfile=CERTFILE)
-	else :
-		serversslsocket = ssl.wrap_socket(serversslsocket, certfile=CERTFILE)
+	if len(CERTFILE) <= 0 or len(KEYFILE) <= 0:
+		log_error("Must specify both KEYFILE and CERTFILE for SSL")
+		return
+
+	serversslsocket = ssl.wrap_socket(serversslsocket, keyfile=KEYFILE, certfile=CERTFILE)
 	serversslsocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 	#bind the socket to a public host,
 	# and a well-known port
