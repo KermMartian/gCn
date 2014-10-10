@@ -13,14 +13,18 @@ import sys
 import socket
 import string
 import sched, time
-import threading
+import threading, thread
 import random
 import signal
 import string
 import re
 import copy
 import errno
+import ssl
 from logging import *
+
+CERTFILE = "cert.pem"
+KEYFILE = ""
 
 #set to 1 for no SAX connection, 0 for normal operation
 SILENTMODE = 0
@@ -46,6 +50,7 @@ cookielib = None
 #gcn tracking
 HOSTNAME = "gcnhub.cemetech.net"
 GCNPORT = 4295
+SSLPORT = 4296
 vhublist = dict()
 vhublock = threading.Lock()
 
@@ -247,6 +252,30 @@ def statswrite():
 	st_maxcalcs = 0
 	saxpost(0,"gCn",saxmsg,1);
 
+def startSSL():
+	#create an INET, STREAMing socket
+	serversslsocket = socket.socket(
+	    socket.AF_INET, socket.SOCK_STREAM)
+	if KEYFILE:
+		serversslsocket = ssl.wrap_socket(serversslsocket, keyfile=KEYFILE, certfile=CERTFILE)
+	else :
+		serversslsocket = ssl.wrap_socket(serversslsocket, certfile=CERTFILE)
+	serversslsocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+	#bind the socket to a public host,
+	# and a well-known port
+	serversslsocket.bind((HOSTNAME, SSLPORT))
+	
+	#become a server socket
+	serversslsocket.listen(5)
+
+	while 1==1:
+		#accept connections from outside
+		(clientsocket, address) = serversslsocket.accept()
+		#now do something with the clientsocket
+		#in this case, we'll pretend this is a threaded server
+		ct = client_thread(clientsocket,address)
+		ct.start()
+
 def start():
 	global client
 	global sid
@@ -259,12 +288,13 @@ def start():
 	#create an INET, STREAMing socket
 	serversocket = socket.socket(
 	    socket.AF_INET, socket.SOCK_STREAM)
+	serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 	#bind the socket to a public host,
 	# and a well-known port
 	serversocket.bind((HOSTNAME, GCNPORT))
 	#become a server socket
 	serversocket.listen(5)
-
+	thread.start_new_thread(startSSL, ())
 	while 1==1:
 		#accept connections from outside
 		(clientsocket, address) = serversocket.accept()
@@ -324,6 +354,10 @@ class client_thread(threading.Thread):
 			except socket.error as (errnum,errstr):
 				if errnum == errno.EWOULDBLOCK:
 					continue;
+				data = 0
+			except ssl.SSLError as e :
+				if e.errno == ssl.SSL_ERROR_WANT_READ:
+					continue
 				data = 0
 			if data:
 				#self.client.send(data)

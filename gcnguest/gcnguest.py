@@ -21,9 +21,12 @@ from htmlentitydefs import name2codepoint as n2cp
 from subprocess import *
 from logging import *
 
+USESSL = True
 #gcn info
 GCNSERVER = "gcnhub.cemetech.net"
 GCNPORT = 4295
+if USESSL:
+	GCNPORT = 4296
 GCNREMOTE = "IRCHub"
 GCNLOCAL = "GuestbookBridge"
 allcalcs = dict()
@@ -95,8 +98,8 @@ def fetchandpost(url,lasttime):
 		message = pieces[2]
 		date = pieces[4]
 		outmsg = calcencode('(GUEST)') + chr(0) + calcencode(state) + chr(0) + \
-                 calcencode(time.strftime("%H:%M", time.localtime(int(date)))) + chr(0) + \
-                 calcencode(message) + chr(0)
+		 calcencode(time.strftime("%H:%M", time.localtime(int(date)))) + chr(0) + \
+		 calcencode(message) + chr(0)
 		log_info('gcnguest: Sending along "' + outmsg + '"')
 		outtoclient(0xAD,outmsg,'AAAAAAAAAA');
 
@@ -158,10 +161,10 @@ def start():
 	log_info('gcnguest: gCn manager started.')
 
 class ping_thread(threading.Thread):
-        def __init__(self):
-                threading.Thread.__init__(self)
+	def __init__(self):
+		threading.Thread.__init__(self)
 
-        def run(self):
+	def run(self):
 		global clientsocket
 		msg = chr(255)+chr(137)+chr(0)+chr(0)+chr(0)+chr(0)+chr(0)+chr(0xAA)+chr(0xAA)+chr(0xAA)+chr(0xAA)+chr(0xAA)+chr(9)+chr(0)+chr(171)+"GuestBridge"+chr(0)+chr(0)+chr(0)+chr(0)+chr(0)+chr(42)
 		msg = chr(len(msg))+chr(0)+'b'+msg
@@ -178,14 +181,15 @@ class ping_thread(threading.Thread):
 			time.sleep(5.0)
 
 class gCnManage(threading.Thread):
-        def __init__(self):
-                threading.Thread.__init__(self)
+	def __init__(self):
+		threading.Thread.__init__(self)
 
-        def run(self):
+	def run(self):
 		global GCNSERVER
 		global GCNPORT
 		global GCNLOCAL
 		global GCNREMOTE
+		global USESSL
 		global clientsocket
 		global client
 		global allcalcs
@@ -194,6 +198,8 @@ class gCnManage(threading.Thread):
 		log_info('gcnguest: starting gCn client')
 		clientsocket = socket.socket(
 		    socket.AF_INET, socket.SOCK_STREAM)
+		if USESSL:
+			clientsocket = ssl.wrap_socket(clientsocket)
 		#bind the socket to a public host,
 		# and a well-known port
 		clientsocket.connect((GCNSERVER,GCNPORT))
