@@ -21,6 +21,7 @@ import signal
 import string
 import re
 import copy
+import ssl
 from htmlentitydefs import name2codepoint as n2cp
 from logging import *
 
@@ -46,11 +47,15 @@ QUIZBOT="Melisma"
 quizactive = 0
 
 #phpBB
+warnlist = []				# Stores which users have been warned
 from hubsecret import *
 
 #gcn info
+USESSL = True
 GCNSERVER = "gcnhub.cemetech.net"
 GCNPORT = 4295
+if USESSL:
+	GCNPORT = 4296
 GCNREMOTE = "IRCHub"
 GCNLOCAL = "gCnIRCHub"
 allcalcs = dict()
@@ -415,8 +420,8 @@ def gcnpost(sid,source,message,type):
 	while msgindex < len(outmsg):
 		thisoutmsg = chr(173) + outmsg[msgindex:msgindex+min(len(outmsg)-msgindex,240)];
 		outmsghdr = chr(0xAA) + chr(0xAA) + chr(0xAA) + chr(0xAA) + chr(0xAA) + \
-		            chr(len(thisoutmsg)&0x00ff) + \
-		            chr((len(thisoutmsg)>>8) & 0x007f)
+			    chr(len(thisoutmsg)&0x00ff) + \
+			    chr((len(thisoutmsg)>>8) & 0x007f)
 		outmsghdr = outmsghdr + thisoutmsg
 		for sid,calc in allcalcs.items():
 			print "Forwarding '"+outmsghdr+"' to '"+calc[0]+"' ("+calc5to10(calc[2])+")"
@@ -465,7 +470,6 @@ def start():
 	global client
 	global saxbot
 	global sid
-	global PHPBBHOST
 	global LOGINPATH
 	global PASSWORD
 	global BOTNETPASS
@@ -480,10 +484,10 @@ def start():
 	client.start()
 
 class ping_thread(threading.Thread):
-        def __init__(self):
-                threading.Thread.__init__(self)
+	def __init__(self):
+		threading.Thread.__init__(self)
 
-        def run(self):
+	def run(self):
 		global clientsocket
 		msg = chr(255) + chr(137) + chr(0) + chr(0) + chr(0) + chr(0) + chr(0) + \
 		      chr(0xAA) + chr(0xAA) + chr(0xAA) + chr(0xAA) + chr(0xAA) + chr(9) + chr(0) + \
@@ -503,10 +507,10 @@ class ping_thread(threading.Thread):
 			time.sleep(5.0)
 
 class gCnManage(threading.Thread):
-        def __init__(self):
-                threading.Thread.__init__(self)
+	def __init__(self):
+		threading.Thread.__init__(self)
 
-        def run(self):
+	def run(self):
 		global GCNSERVER
 		global GCNPORT
 		global GCNLOCAL
@@ -518,7 +522,9 @@ class gCnManage(threading.Thread):
 		#create an INET, STREAMing socket
 		log_info('gcnirc: Starting gCn client')
 		clientsocket = socket.socket(
-		    socket.AF_INET, socket.SOCK_STREAM)
+			socket.AF_INET, socket.SOCK_STREAM)
+		if USESSL:
+			clientsocket = ssl.wrap_socket(clientsocket)
 		#bind the socket to a public host,
 		# and a well-known port
 		clientsocket.connect((GCNSERVER,GCNPORT))
@@ -533,8 +539,8 @@ class gCnManage(threading.Thread):
 		clientsocket.sendall(calcmsg)
 		time.sleep(0.1);
 
-	        spt = ping_thread()
-        	spt.start()
+		spt = ping_thread()
+		spt.start()
 
 		recbuf = "";
 		recbufqueue = 0;
@@ -615,46 +621,29 @@ def cleanstr(instr):
 	return outstr
 
 def substitute_entity(match):
-    ent = match.group(3)
+	ent = match.group(3)
     
-    if match.group(1) == "#":
-        if match.group(2) == '':
-            return unichr(int(ent))
-        elif match.group(2) == 'x':
-            return unichr(int('0x'+ent, 16))
-    else:
-        cp = n2cp.get(ent)
+	if match.group(1) == "#":
+		if match.group(2) == '':
+			return unichr(int(ent))
+		elif match.group(2) == 'x':
+			return unichr(int('0x'+ent, 16))
+	else:
+		cp = n2cp.get(ent)
 
-        if cp:
-            return unichr(cp)
-        else:
-            return match.group()
+		if cp:
+			return unichr(cp)
+		else:
+			return match.group()
 
 def decode_htmlentities(string):
-    entity_re = re.compile(r'&(#?)(x?)(\w+);')
-    try:
-        retval = entity_re.subn(substitute_entity, string)[0]
-    except UnicodeDecodeError:
-        return string
-    else:
-        return retval
+	entity_re = re.compile(r'&(#?)(x?)(\w+);')
+	try:
+		retval = entity_re.subn(substitute_entity, string)[0]
+	except UnicodeDecodeError:
+		return string
+	else:
+		return retval
 
 while 1==1:
-#	try:
 	start()
-#	except ControlRestart:
-#		print "restarting"
-#		try:
-#			client.connection.quit("goodbye")
-#		except Exception,e:
-#			print "IRC quit already"
-#		try:
-#			saxbot.stop()
-#		except:
-#			print "saxbot stopped already"
-#		print ""
-#		start()
-#	except:
-#		print "EPIC FAILURE:"
-#		print sys.exc_info()[0]
-#		exit(0);

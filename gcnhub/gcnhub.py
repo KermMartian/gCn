@@ -13,13 +13,14 @@ import sys
 import socket
 import string
 import sched, time
-import threading
+import threading, thread
 import random
 import signal
 import string
 import re
 import copy
 import errno
+import ssl
 from logging import *
 
 #set to 1 for no SAX connection, 0 for normal operation
@@ -46,6 +47,7 @@ cookielib = None
 #gcn tracking
 HOSTNAME = "gcnhub.cemetech.net"
 GCNPORT = 4295
+SSLPORT = 4296
 vhublist = dict()
 vhublock = threading.Lock()
 
@@ -202,35 +204,37 @@ def saxpost(sid,source,message,type):
 	if kickthem == 1:
 		return
 
-	message = urllib.urlencode({'message' : shortcreateurls(message)})
-	who = urllib.urlencode({'who' : source})
-	type = urllib.urlencode({'type' : type})
-	theurl = PHPBBHOST+SAXSAY+'?key=' + SAXKEY + '&'+message+'&'+who+'&'+type
-	txdata = None
-	txheaders =  {'User-agent' : 'Mozilla/4.0 (compatible; MSIE 5.5; Windows NT)'}
-	try:
-		req = Request(theurl, txdata, txheaders)
-		# create a request object
-	
-		handle = urlopen(req)
-		# and open it to return a handle on the url
-	
-	except IOError, e:
-		log_error('gcnhub: We failed to open "%s".' % theurl)
-		if hasattr(e, 'code'):
-			log_error('gcnhub: We failed with error code - %s.' % e.code)
-		elif hasattr(e, 'reason'):
-			log_error("gcnhub: The error object has the following 'reason' attribute :"+e.reason)
-			log_error("gcnhub: This usually means the server doesn't exist,',")
-			log_error("is down, or we don't have an internet connection.")
-		sys.exit()
-	else:
-		returned = handle.readline()
-		if returned[0:2] != 'OK':
-			returned = "Cemetech: " + returned
-			log_error("gchub: "+returned)
-			client.connection.privmsg(CHANNEL,"ERROR: "+returned)
-			raise Exception,returned
+	# Construct the outgoing request and send it
+	if USESAX:
+		message = urllib.urlencode({'message' : shortcreateurls(message)})
+		who = urllib.urlencode({'who' : source})
+		type = urllib.urlencode({'type' : type})
+		theurl = SAXHOST + SAXSAY + '?key=' + SAXKEY + '&' + message + '&' + who + '&' + type
+		txdata = None
+		txheaders =  {'User-agent' : 'Mozilla/4.0 (compatible; MSIE 5.5; Windows NT)'}
+		try:
+			req = Request(theurl, txdata, txheaders)
+			# create a request object
+		
+			handle = urlopen(req)
+			# and open it to return a handle on the url
+		
+		except IOError, e:
+			log_error('gcnhub: We failed to open "%s".' % theurl)
+			if hasattr(e, 'code'):
+				log_error('gcnhub: We failed with error code - %s.' % e.code)
+			elif hasattr(e, 'reason'):
+				log_error("gcnhub: The error object has the following 'reason' attribute :"+e.reason)
+				log_error("gcnhub: This usually means the server doesn't exist,',")
+				log_error("is down, or we don't have an internet connection.")
+			sys.exit()
+		else:
+			returned = handle.readline()
+			if returned[0:2] != 'OK':
+				returned = "Cemetech: " + returned
+				log_error("gchub: "+returned)
+				client.connection.privmsg(CHANNEL,"ERROR: "+returned)
+				raise Exception,returned
 
 def statswrite():
 	global st_bytesin
@@ -247,6 +251,31 @@ def statswrite():
 	st_maxcalcs = 0
 	saxpost(0,"gCn",saxmsg,1);
 
+def startSSL():
+	#create an INET, STREAMing socket
+	serversslsocket = socket.socket(
+	    socket.AF_INET, socket.SOCK_STREAM)
+	if len(CERTFILE) <= 0 or len(KEYFILE) <= 0:
+		log_error("Must specify both KEYFILE and CERTFILE for SSL")
+		return
+
+	serversslsocket = ssl.wrap_socket(serversslsocket, keyfile=KEYFILE, certfile=CERTFILE)
+	serversslsocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+	#bind the socket to a public host,
+	# and a well-known port
+	serversslsocket.bind((HOSTNAME, SSLPORT))
+	
+	#become a server socket
+	serversslsocket.listen(5)
+
+	while 1==1:
+		#accept connections from outside
+		(clientsocket, address) = serversslsocket.accept()
+		#now do something with the clientsocket
+		#in this case, we'll pretend this is a threaded server
+		ct = client_thread(clientsocket,address)
+		ct.start()
+
 def start():
 	global client
 	global sid
@@ -259,12 +288,13 @@ def start():
 	#create an INET, STREAMing socket
 	serversocket = socket.socket(
 	    socket.AF_INET, socket.SOCK_STREAM)
+	serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 	#bind the socket to a public host,
 	# and a well-known port
 	serversocket.bind((HOSTNAME, GCNPORT))
 	#become a server socket
 	serversocket.listen(5)
-
+	thread.start_new_thread(startSSL, ())
 	while 1==1:
 		#accept connections from outside
 		(clientsocket, address) = serversocket.accept()
@@ -324,6 +354,10 @@ class client_thread(threading.Thread):
 			except socket.error as (errnum,errstr):
 				if errnum == errno.EWOULDBLOCK:
 					continue;
+				data = 0
+			except ssl.SSLError as e :
+				if e.errno == ssl.SSL_ERROR_WANT_READ:
+					continue
 				data = 0
 			if data:
 				#self.client.send(data)

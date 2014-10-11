@@ -13,8 +13,6 @@ do
 	kill -9 `pgrep $Exec`
 done
 
-echo "Waiting 3 minutes for port to clear..."
-sleep 180
 echo "Starting new executables..."
 
 for ((i=${#Execs[@]}-1; i>=0; i--)); do
