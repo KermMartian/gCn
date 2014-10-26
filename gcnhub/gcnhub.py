@@ -15,7 +15,6 @@ import string
 import sched, time
 import threading, thread
 import random
-import signal
 import string
 import re
 import copy
@@ -505,9 +504,6 @@ class client_thread:
 			log_warn("gcnhub: [MSG] Unknown message of length "+str(len(data))+"")
 		return;
 		
-def signal_handler(signal, frame):
-	log_error('gcnhub: You pressed Ctrl+C!')
-	sys.exit(0)
 
 def waitfordata() :
 	global client
@@ -570,5 +566,7 @@ def waitfordata() :
 
 
 
-signal.signal(signal.SIGINT, signal_handler)
-startSSL()
+try :
+        startSSL()
+except KeyboardInterrupt :
+        log_error('gcnhub: You pressed Ctrl+C!')
