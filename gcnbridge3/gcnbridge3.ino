@@ -13,8 +13,6 @@
 	
  */
 
-#include <Arduino.h>
-
 //ONLY ONE OF THESE
 #define avr328
 //#define avr168
@@ -23,6 +21,10 @@
 #define sparkcore
 //#define ardubridge
 //#define usbhid
+
+#ifdef ardubridge
+#include <Arduino.h>
+#endif
 
 #ifdef sparkcore            // Spark Core implies Ardubridge
 #define ardubridge
@@ -214,6 +216,7 @@ void setup() {
 
     // Initialize serial communication
 #ifdef ardubridge
+
 #ifdef sparkcore
     WiFi.on();                  // Vital in SEMI_AUTOMATIC mode
     
