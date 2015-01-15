@@ -13,6 +13,8 @@
 	
  */
 
+#include <Arduino.h>
+
 //ONLY ONE OF THESE
 #define avr328
 //#define avr168
@@ -76,16 +78,16 @@ extern "C" unsigned char usbFunctionWrite(unsigned char *data, unsigned char len
 #include <string.h>
 #include <avr/io.h>
 #include <avr/wdt.h>
-#include <avr/interrupt.h>  /* for sei() */
-#include <util/delay.h>     /* for _delay_ms() */
+#include <avr/interrupt.h>  // for sei()
+#include <util/delay.h>     // for _delay_ms()
 #include <avr/eeprom.h>
 
-#include <avr/pgmspace.h>   /* required by usbdrv.h */
+#include <avr/pgmspace.h>   // required by usbdrv.h
 //*****CHRISTOPHER'S NOTES: Rename usbdrv_gcnbridge.h to usbdrv.h for this project.
 //*****WILL NEED to change name of other usbdrv.h files for other projects.
 //*****DITTO with oddebug.h!
 #include "usbdrv.h"
-#include "oddebug.h"        /* This is also an example for using debug macros */
+#include "oddebug.h"        // This is also an example for using debug macros
 
 uint8_t output_pending;      //1 for a frame, 2 for the reset
 uint8_t input_pending;
@@ -152,12 +154,22 @@ uint8_t calcstore[calcstoresize];
 #define CN2_GETBYTE3_TIMEOUT 200 //is 40 oncalc
 #define CN2_GETBYTE5_TIMEOUT 900 //is 40 oncalc
 #define CN2_RECEIVEFRAMESTARTING_TIMEOUT 900000 //(55000-6000)/58 oncalc
+#define CN2_RECEIVEFRAMESTARTING_TIMEOUT_US 15000
 
 #endif
 
 #define CN2_MAX_FRAME_RETRIES 255
 
 #define WAITTIME(datasize) (17+(46*(datasize&0x7fff))/3)
+
+void resetLines();
+void mySerialEmptyBuf();
+unsigned int mySerialRead();
+static int cn2_send();
+static void cn2_receive();
+static uint16_t cn2_sendbyte(uint8_t);
+static uint16_t cn2_recbyte();
+static uint16_t cn2_search_FSM(uint16_t);
 
 #ifdef sparkcore
 TCPClient client;
@@ -190,7 +202,7 @@ void setup() {
     usbDeviceDisconnect();
     unsigned char i;
     i = 0;
-    while(--i){             /* fake USB disconnect for > 250 ms */
+    while(--i){             // fake USB disconnect for > 250 ms
         _delay_ms(1);
     }
     usbDeviceConnect();
@@ -300,7 +312,7 @@ void loop() {
                 if (i == -99) setRGBLED(ledg, HIGH);
                     usbPoll();
                 j=40;
-                while(--j)             /* fake USB disconnect for > 250 ms */
+                while(--j)             // fake USB disconnect for > 250 ms
                     _delay_ms(1);
                 usbPoll();
                 j++;
@@ -323,7 +335,9 @@ void loop() {
         goto serialFlush;
         
         digitalWrite(CN2clock, LOW); // TEMPORARY - inhibit Cn2.2
-        digitalWrite(ledtoggle, HIGH);
+        setRGBLED(ledr, LOW);
+        setRGBLED(ledg, LOW);
+        setRGBLED(ledb, HIGH);
       
         // Fetch the recipient ID
         for(i=0; i<5; i++) {
@@ -375,7 +389,7 @@ void loop() {
     
     serialFlush:
         digitalWrite(CN2clock, HIGH); // TEMPORARY - un-inhibit Cn2.2
-        digitalWrite(ledtoggle, LOW);
+        setRGBLED(ledb, LOW);
 
         do {
             if ('s' == Serial.read()) {
@@ -480,10 +494,11 @@ void loop() {
         SREG = oldSREG;
 #else
         led_state = 1 - led_state;
-        digitalWrite(ledtoggle, led_state);
+        digitalWrite(ledg, led_state);
 #endif
-        }
     }
+}
+
     
 #ifdef ardubridge
 unsigned int mySerialRead()  {
@@ -696,9 +711,12 @@ static void cn2_receive() {
     }
 
     addror = 0;
+
+#ifdef sparkcore
     selfmatch = true;
     selfaddr_offset = self_addr;
-    
+#endif
+
     for(i=0; i<5; i++) {
         j = cn2_recbyte();
         if (j < 0)
@@ -972,7 +990,7 @@ static uint16_t cn2_search_FSM(uint16_t ticks) {
             usbPoll();
             for(i=0; i<12; i++) {
               j=40;
-              while(--j)             /* fake USB disconnect for > 250 ms */
+              while(--j)             // fake USB disconnect for > 250 ms
                 _delay_ms(1);
               usbPoll();
             }
@@ -984,7 +1002,7 @@ static uint16_t cn2_search_FSM(uint16_t ticks) {
 #ifdef usbhid
             for(i=0; i<12; i++) {
               j=40;
-              while(--j)             /* fake USB disconnect for > 250 ms */
+              while(--j)             // fake USB disconnect for > 250 ms
                 _delay_ms(1);
               usbPoll();
             }
@@ -995,7 +1013,7 @@ static uint16_t cn2_search_FSM(uint16_t ticks) {
 #ifdef usbhid
             for(i=0; i<12; i++) {
               j=40;
-              while(--j)             /* fake USB disconnect for > 250 ms */
+              while(--j)             // fake USB disconnect for > 250 ms
                 _delay_ms(1);
               usbPoll();
             }
