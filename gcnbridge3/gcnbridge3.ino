@@ -28,7 +28,7 @@
 
 #ifdef sparkcore            // Spark Core implies Ardubridge
 #define ardubridge
-//#define sparkdebug          // Toggle this as necessary
+#define sparkdebug          // Toggle this as necessary
 SYSTEM_MODE(SEMI_AUTOMATIC);
 
 const char* server_host = "gcnhub.cemetech.net";
@@ -222,7 +222,7 @@ void setup() {
     
     Serial.begin(9600);             // Used for logging
 #ifdef sparkdebug
-    while(!Serial.available()) SPARK_WLAN_Loop();
+    while(!Serial.available()) Spark.process();
     Serial.print("Beginning bridge process with connectable = ");
     Serial.println(connectable);
 #endif
@@ -417,7 +417,7 @@ void loop() {
         while(idx < framelen) {
             do {
                 c = client.read();
-                if (c == -1) SPARK_WLAN_Loop();
+                if (c == -1) Spark.process();
             } while (c == -1);
             
             //if (idx < 3)
@@ -1499,3 +1499,4 @@ void copyHubsToRAM(void) {
     return;
 }
 #endif
+
