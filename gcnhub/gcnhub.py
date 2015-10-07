@@ -15,19 +15,19 @@ import string
 import sched, time
 import threading, thread
 import random
-import signal
 import string
 import re
 import copy
 import errno
-import ssl
+import ssl, select
 from logging import *
 
 #set to 1 for no SAX connection, 0 for normal operation
 SILENTMODE = 0
-
+conlist = []
+instances = {}
 COOKIEFILE = 'cookies.lwp'
-
+waitingfordata = False
 #phpBB/SAX-related things
 from hubsecret import *
 
@@ -45,11 +45,11 @@ ClientCookie = None
 cookielib = None
 
 #gcn tracking
-HOSTNAME = "gcnhub.cemetech.net"
 GCNPORT = 4295
 SSLPORT = 4296
 vhublist = dict()
-vhublock = threading.Lock()
+#vhublock = threading.Lock()
+conlistlock = threading.Lock()
 
 def shortcreateurls(input):
 	curloc = 0
@@ -252,15 +252,31 @@ def statswrite():
 	saxpost(0,"gCn",saxmsg,1);
 
 def startSSL():
+	global client
+	global sid
+	global waitingfordata
+	global conlist
+	global instances
+	vhublist = dict()
+	#vhublock = threading.Lock()
+
+	ss = stats_thread()
+	ss.start()
 	#create an INET, STREAMing socket
 	serversslsocket = socket.socket(
 	    socket.AF_INET, socket.SOCK_STREAM)
-	if len(CERTFILE) <= 0 or len(KEYFILE) <= 0:
-		log_error("Must specify both KEYFILE and CERTFILE for SSL")
+	#if len(CERTFILE) <= 0 or len(KEYFILE) <= 0:
+	#	log_error("Must specify both KEYFILE and CERTFILE for SSL")
+	#	return
+	if KEYFILE != "" and CERTFILE != "":
+		serversslsocket = ssl.wrap_socket(serversslsocket, keyfile=KEYFILE, certfile=CERTFILE)
+	elif KEYFILE == "" and CERTFILE != "":
+		serversslsocket = ssl.wrap_socket(serversslsocket, certfile=CERTFILE)
+	else :
+		log_error("You must have at least a certfile specified.  Additionally, the certfile must have the key included if no keyfile is used")
 		return
-
-	serversslsocket = ssl.wrap_socket(serversslsocket, keyfile=KEYFILE, certfile=CERTFILE)
 	serversslsocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+	thread.start_new_thread(start, ())
 	#bind the socket to a public host,
 	# and a well-known port
 	serversslsocket.bind((HOSTNAME, SSLPORT))
@@ -274,16 +290,20 @@ def startSSL():
 		#now do something with the clientsocket
 		#in this case, we'll pretend this is a threaded server
 		ct = client_thread(clientsocket,address)
-		ct.start()
+		conlistlock.acquire()
+		conlist.append(clientsocket)
+		instances[clientsocket] = ct
+		conlistlock.release()
+		if not waitingfordata:
+			waitingfordata = True
+			thread.start_new_thread(waitfordata, ())
 
 def start():
 	global client
 	global sid
-	vhublist = dict()
-	vhublock = threading.Lock()
-
-	ss = stats_thread()
-	ss.start()
+	global waitingfordata
+	global conlist
+	global instances
 
 	#create an INET, STREAMing socket
 	serversocket = socket.socket(
@@ -294,15 +314,19 @@ def start():
 	serversocket.bind((HOSTNAME, GCNPORT))
 	#become a server socket
 	serversocket.listen(5)
-	thread.start_new_thread(startSSL, ())
 	while 1==1:
 		#accept connections from outside
 		(clientsocket, address) = serversocket.accept()
 		#now do something with the clientsocket
 		#in this case, we'll pretend this is a threaded server
 		ct = client_thread(clientsocket,address)
-		ct.start()
-
+		conlistlock.acquire()
+		conlist.append(clientsocket)
+		instances[clientsocket] = ct
+		conlistlock.release()
+		if not waitingfordata:
+			waitingfordata = True
+			thread.start_new_thread(waitfordata, ())
 class stats_thread(threading.Thread):
 	def __init__(self):
 		threading.Thread.__init__(self)
@@ -326,11 +350,11 @@ class stats_thread(threading.Thread):
 				 pass;
 			time.sleep(60)
 
-class client_thread(threading.Thread):
+class client_thread:
 	def __init__(self,client,address):
-		threading.Thread.__init__(self)
+		#threading.Thread.__init__(self)
 		self.client = client
-		self.client.setblocking(0)		#set non-blocking
+		#self.client.setblocking(0)		#set non-blocking
 		self.address = address
 		self.size = 1024
 		self.hubname = ""
@@ -338,62 +362,39 @@ class client_thread(threading.Thread):
 		self.addrport = self.address[0]+":"+str(self.address[1])
 		self.joined = 0
 		self.calclist = list()
+		self.recbuf = ""
+		self.recbufqueue = 0
 		log_info("gcnhub: [THREAD] Init from "+self.address[0]+":"+str(self.address[1])+"")
-	def run(self):
-		global st_calcs
-		running = 1
 
-		recbuf = ""
-		recbufqueue = 0
-		while running:
-			time.sleep(0.02);
-			try:
-				data = self.client.recv(self.size)
-				recbuf = recbuf + data
-				recbufqueue += len(data)
-			except socket.error as (errnum,errstr):
-				if errnum == errno.EWOULDBLOCK:
-					continue;
-				data = 0
-			except ssl.SSLError as e :
-				if e.errno == ssl.SSL_ERROR_WANT_READ:
-					continue
-				data = 0
-			if data:
-				#self.client.send(data)
-				#print "Received data of length "+str(len(data))+" from "+self.hubname+"."+self.localname
-				while recbufqueue > 2 and recbufqueue >= 3+ord(recbuf[0])+256*ord(recbuf[1]):
-					thismsglen = ord(recbuf[0])+256*ord(recbuf[1])
-					thismsg = recbuf[0:3+thismsglen]
-					self.handlemsg(thismsg)
-					recbuf = recbuf[3+thismsglen:]
-					recbufqueue -= 3+thismsglen
-					if recbufqueue != len(recbuf):
-						log_error("gcnhub: buffer length mismatch, discarding buffer")
-						recbuf = ""
-						recbufqueue = 0
+	def parseData(self, data):
+		#global st_calcs
+		#running = 1
 
 
-			else:
-				self.client.close()
-				log_info("gcnhub: [THREAD] Closing on "+self.address[0]+":"+str(self.address[1])+"")
-				if self.joined == 1:
-					
-					vhublock.acquire()
-					try:
-						del vhublist[self.hubname][self.addrport]
-					except KeyError:
-						log_error('gcnhub: Tried to remove non-existent client '+self.addrport+' from hub '+self.hubname);
-					st_calcs -= len(self.calclist)
-					if (len(vhublist[self.hubname])) == 0:
-						del vhublist[self.hubname]
-						saxmsg = "lost its final client endpoint '"+self.localname+"' and was destroyed"
-					else:
-						saxmsg = "lost a client endpoint '"+self.localname+"'"
-					vhublock.release()
+		#while running:
+		#	time.sleep(0.02);
+		self.recbuf = self.recbuf + data
+		self.recbufqueue += len(data)
+		if data:
+			#self.client.send(data)
+			#print "Received data of length "+str(len(data))+" from "+self.hubname+"."+self.localname
+			while self.recbufqueue > 2 and self.recbufqueue >= 3+ord(self.recbuf[0])+256*ord(self.recbuf[1]):
+				thismsglen = ord(self.recbuf[0])+256*ord(self.recbuf[1])
+				thismsg = self.recbuf[0:3+thismsglen]
+				self.handlemsg(thismsg)
+				self.recbuf = self.recbuf[3+thismsglen:]
+				self.recbufqueue -= 3+thismsglen
+				if self.recbufqueue != len(self.recbuf):
+					log_error("gcnhub: buffer length mismatch, discarding buffer")
+					self.recbuf = ""
+					self.recbufqueue = 0
 
-					#saxpost(0,"gCn virtual hub '"+self.hubname+"'",saxmsg,2);
-				running = 0 
+
+		else:
+				#vhublock.release()
+
+				#saxpost(0,"gCn virtual hub '"+self.hubname+"'",saxmsg,2);
+			running = 0 
 	def handlemsg(self,data):
 		global st_bytesin
 		global st_bytesout
@@ -413,7 +414,7 @@ class client_thread(threading.Thread):
 			   len(self.hubname) > 0 and len(self.hubname) < 16:
 				log_info("gcnhub: [MSG] Join from "+self.addrport+": "+self.localname+"->"+self.hubname)
 
-				vhublock.acquire();
+				#vhublock.acquire();
 				if (vhublist.has_key(self.hubname)):
 					vhublist[self.hubname][self.addrport] = self
 					saxmsg = "has a new client endpoint '"+self.localname+"'"
@@ -422,7 +423,7 @@ class client_thread(threading.Thread):
 					thisclientdict[self.addrport] = self
 					vhublist[self.hubname] = thisclientdict
 					saxmsg = "has been created with a new client endpoint '"+self.localname+"'"
-				vhublock.release();
+				#vhublock.release();
 				self.joined = 1
 			else:
 				log_warn("gcnhub: [MSG] INVALID join from "+self.addrport+": "+self.localname+"->"+self.hubname)
@@ -437,14 +438,14 @@ class client_thread(threading.Thread):
 			else:
 				log_info("gcnhub: [MSG] "+self.addrport+" is adding calculator "+msg+"...")
 				sendsax = 0
-				vhublock.acquire()
+				#vhublock.acquire()
 				if not(msg in self.calclist):
 					sendsax = 1
 					st_calcs+=1
 					if st_calcs > st_maxcalcs:
 						st_maxcalcs = st_calcs
 					self.calclist.append(msg)
-				vhublock.release()
+				#vhublock.release()
 
 				if sendsax == 1:
 					saxpost(0,"gCn virtual hub '"+self.hubname+"'","has new calculator "+msg+" from "+self.localname,2)
@@ -455,7 +456,7 @@ class client_thread(threading.Thread):
 			elif datalen > 256+5+5+2+3:
 				log_warn("gcnhub: [MSG] "+self.addrport+" sent an overflow-length broadcast")
 			else:
-				vhublock.acquire()
+				#vhublock.acquire()
 				for key in vhublist[self.hubname].keys():
 					if vhublist[self.hubname][key] != self:
 						#SEND BROADCAST
@@ -470,7 +471,7 @@ class client_thread(threading.Thread):
 							#saxpost(0,"gCn virtual hub '"+self.hubname+"'",saxmsg,2);
 							
 						
-				vhublock.release()
+				#vhublock.release()
 				#print "[BROADCAST] ("+self.addrport+") "+self.hubname+"."+self.localname+"->"+self.hubname+", "+str(datalen)+" bytes"
 		elif msgtype == 'f':
 			#Normal directed frame
@@ -481,7 +482,7 @@ class client_thread(threading.Thread):
 			else:
 				desthex = "%02X%02X%02X%02X%02X" % (ord(msg[2]),ord(msg[3]),ord(msg[4]),ord(msg[5]),ord(msg[6]))
 				srchex = "%02X%02X%02X%02X%02X" % (ord(msg[7]),ord(msg[8]),ord(msg[9]),ord(msg[10]),ord(msg[11]))
-				vhublock.acquire()
+				#vhublock.acquire()
 				for key in vhublist[self.hubname]:
 					if vhublist[self.hubname][key] != self and desthex in vhublist[self.hubname][key].calclist:
 						#SEND BROADCAST
@@ -498,14 +499,74 @@ class client_thread(threading.Thread):
 
 						break
 						
-				vhublock.release()
+				#vhublock.release()
 		else:
 			log_warn("gcnhub: [MSG] Unknown message of length "+str(len(data))+"")
 		return;
 		
-def signal_handler(signal, frame):
-	log_error('gcnhub: You pressed Ctrl+C!')
-	sys.exit(0)
 
-signal.signal(signal.SIGINT, signal_handler)
-start()
+def waitfordata() :
+	global client
+	global sid
+	global waitingfordata
+	global conlist
+	global instances
+	global st_calcs
+	global vhublist
+	while True:
+		if len(conlist) != 0:
+			noerror = False
+			tempconlist = conlist[:]
+			try:
+				connections = select.select(tempconlist, [], [], 5)
+				noerror = True
+			except:
+				for network in tempconlist:
+					try:
+						connections = select.select([network], [], [], 0)
+					except :
+						conlistlock.acquire()
+						conlist.remove(network)
+						#del instances[network]
+						conlistlock.release()
+			if noerror:
+				for connection in connections[0]:
+					try: data = connection.recv(1024)
+					except: data = ""
+					if data != "" :
+						conlistlock.acquire()
+						instances[connection].parseData(data)
+						conlistlock.release()
+					else:
+						conlistlock.acquire()
+						
+
+						log_info("gcnhub: [THREAD] Closing on "+instances[connection].address[0]+":"+str(instances[connection].address[1])+"")
+						if instances[connection].joined == 1:
+							
+							#vhublock.acquire()
+							try:
+								del vhublist[instances[connection].hubname][instances[connection].addrport]
+							except KeyError:
+								log_error('gcnhub: Tried to remove non-existent client '+instances[connection].addrport+' from hub '+instances[connection].hubname);
+							st_calcs -= len(instances[connection].calclist)
+							if (len(vhublist[instances[connection].hubname])) == 0:
+								del vhublist[instances[connection].hubname]
+								saxmsg = "lost its final client endpoint '"+instances[connection].localname+"' and was destroyed"
+							else:
+								saxmsg = "lost a client endpoint '"+instances[connection].localname+"'"
+						
+						del instances[connection]
+						connection.close()
+						conlistlock.release()
+			del tempconlist
+		else:
+			time.sleep(3)
+
+
+
+
+try :
+        startSSL()
+except KeyboardInterrupt :
+        log_error('gcnhub: You pressed Ctrl+C!')
