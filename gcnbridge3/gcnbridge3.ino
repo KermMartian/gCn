@@ -16,7 +16,8 @@
 //ONLY ONE OF THESE
 #define avr328
 //#define avr168
-
+#include "application.h"
+#include <stdint.h>
 //ONLY ONE OF THESE
 #define sparkcore
 //#define ardubridge
