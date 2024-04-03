@@ -1,4 +1,7 @@
 *.pyc
 *.index
+*.o
+*.a
+*.so
 *secret.py
 *secret.pyc
