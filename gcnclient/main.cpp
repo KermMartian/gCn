@@ -1,3 +1,4 @@
+//#define LINUX
 #define WINDOWS
 
 #include <cstdlib>
@@ -13,6 +14,17 @@
 #include <ws2tcpip.h>
 #endif
 
+#ifdef LINUX				// Linux extra includes
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <termios.h>
+#include <string.h>
+#include <fcntl.h>
+#include <errno.h>
+#endif
 
 using namespace std;
 int main(int argc, char *argv[]);
@@ -31,7 +43,11 @@ struct calcknown {
 struct calcknown* local_calcs = NULL;
 struct calcknown* remote_calcs = NULL;
 int verbose = 0;	
+#ifdef WINDOWS
 SOCKET sd;
+#else
+int sd;
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -56,8 +72,12 @@ int main(int argc, char *argv[])
 	HANDLE hSerial;
     DWORD dwCommEvent;
     DWORD dwRead,dwBytesRead;
+#else
+	int hSerial;
+	unsigned int dwRead,dwBytesRead;
+	struct termios oldtio, newtio;
 #endif
-    char  chRead = 0;
+    char chRead = 0, last = 0;
     char fakestring[2] = {0,0};
     
 	//Assorted, including opt parsing
@@ -92,7 +112,11 @@ int main(int argc, char *argv[])
 				return 0;
 			case '?':
 				if (optopt == 'c')
+#ifdef WINDOWS
 					fprintf(stderr,"Option -%c requires a COM port argument (eg, COM6)\n", optopt);
+#else
+					fprintf(stderr,"Option -%c requires a /dev/tty... serial port argument\n",optopt);
+#endif
 				else if (optopt == 'p')
 					fprintf(stderr,"Option -%c requires a server port number (eg, 1337)\n", optopt);
 				else if (optopt == 's')
@@ -113,9 +137,9 @@ int main(int argc, char *argv[])
 	}
 	
 	//Try to open serial port
+#ifdef WINDOWS
 	char comport2[256] = "\\\\.\\";
 	strcat(comport2,comport);
-#ifdef WINDOWS
 	hSerial = CreateFile(comport2,
             GENERIC_READ | GENERIC_WRITE,
             0,
@@ -133,6 +157,12 @@ int main(int argc, char *argv[])
     	fprintf(stderr, "Some serial port problem occurred.\n");
     	exit(0);
 	}
+#else
+	if (0 > (hSerial = open(comport, O_RDWR | O_NOCTTY | O_NONBLOCK ))) {		//
+		fprintf(stderr, "Could not open serial port; %s does not exist?\n",comport);
+		exit(0);
+	}
+
 #endif
 
 	//Set serial parameters
@@ -153,6 +183,17 @@ int main(int argc, char *argv[])
 	    fprintf(stderr, "Unable to set serial parameters.\n");
 	    exit(0);
 	}
+#else
+	tcgetattr(hSerial,&oldtio); /* save current serial port settings */
+	bzero(&newtio, sizeof(newtio)); /* clear struct for new port settings */
+	newtio.c_cflag = B115200 | CS8 | CLOCAL | CREAD;	//CRTSCTS | 
+	newtio.c_iflag = ~(IGNBRK | BRKINT | ICRNL | INLCR | ISTRIP | IXON);
+	newtio.c_oflag = ~(OCRNL | ONLCR | ONLRET | ONOCR | OFILL | OLCUC | OPOST);
+	newtio.c_lflag = ~(ECHO | ECHONL | ICANON | IEXTEN | ISIG);
+	newtio.c_cc[VMIN] = 0;
+	newtio.c_cc[VTIME] = 0;
+	tcflush(hSerial, TCIFLUSH);
+	tcsetattr(hSerial,TCSANOW,&newtio);
 #endif
 
 	//Set serial port timeout limits
@@ -181,18 +222,28 @@ int main(int argc, char *argv[])
 #endif
 	// Open a datagram socket
 	sd = socket(AF_INET, SOCK_STREAM, 0);
+#ifdef WINDOWS
 	if (sd == INVALID_SOCKET)
+#else
+	if (sd < 0)
+#endif
 	{
 		fprintf(stderr,"Unable to create TCP socket [Socket Creation Error]\n");
+#ifdef WINDOWS
 		WSACleanup();
+#endif
 		exit(0);
 	}
 	// Get host name of this computer
 	gethostname(host_name, sizeof(host_name));
 	if (NULL == (hp = gethostbyname(host_name))) {
 		fprintf(stderr,"Unable to get local hostname [DNS Error]\n");
+#ifdef WINDOWS
 		closesocket(sd);
 		WSACleanup();
+#else
+		close(sd);
+#endif
 		exit(0);
 	}
 	
@@ -211,8 +262,12 @@ int main(int argc, char *argv[])
 	                                        &result)) !=0 )
 	{
 		freeaddrinfo(result);
+#ifdef WINDOWS
 		WSACleanup();
 		closesocket(sd);
+#else
+		close(sd);
+#endif
 		cerr << "Server hostname could be be resolved\n" << endl;
 		exit(EXIT_FAILURE);
 	}
@@ -221,34 +276,64 @@ int main(int argc, char *argv[])
 	                cout << "Resolved hostname." << endl;
 	                if (verbose) fprintf(stderr,"Socket #%d\n",sd);
 	                break;
+#ifdef LINUX
+			default:
+#else
 	        case SOCKET_ERROR:
-	                i = WSAGetLastError();
+#endif
 					fprintf(stderr,"Unable to bind TCP socket to virtual hub [Socket Bind Error]\n");
+#ifdef WINDOWS
+	                i = WSAGetLastError();
 	                cerr << "Details: " << i << endl;
-	                closesocket(sd);
+					WSACleanup();
+					closesocket(sd);
+#else
+					close(sd);
+#endif
 	                freeaddrinfo(result);
-	                WSACleanup();
 	                exit(EXIT_FAILURE);
 	                break;
+#ifdef WINDOWS
 	        default:
 	                cerr << "Fatal connect() error: unexpected "
 	                                "return value." << endl;
-	                closesocket(sd);
+					WSACleanup();
+					closesocket(sd);
 	                freeaddrinfo(result);
-	                WSACleanup();
 	                exit(EXIT_FAILURE);
 	                break;
+#endif
 	}
+#ifdef WINDOWS
 	Sleep(500);
+#else
+	usleep(500000);
+#endif
 	
 	//Set the socket non-blocking
+#ifdef WINDOWS
 	ULONG NonBlock = 1;
 	if (ioctlsocket(sd, FIONBIO, &NonBlock) == SOCKET_ERROR) {
 		fprintf(stderr,"ioctlsocket() failed to set socket as nonblocking\n");
-		closesocket(sd);
 		WSACleanup();
+		closesocket(sd);
 		exit(-1);
 	}
+#else
+	int flags;
+	flags = fcntl(sd,F_GETFL,0);
+	if (flags < 0) {
+		fprintf(stderr,"Could not fcntl() get socket flags\n");
+		close(sd);
+		exit(-1);
+	}
+	if (0 > fcntl(sd, F_SETFL, flags | O_NONBLOCK)) {
+		fprintf(stderr,"Could not fcntl() set socket flags\n");
+		close(sd);
+		exit(-1);
+	}
+#endif
+
 	//Send join packet
 	msgbuf[0] = (char)strlen(hubname)+(char)strlen(localname)+2;
 	msgbuf[1] = 0;
@@ -259,18 +344,26 @@ int main(int argc, char *argv[])
 	strcpy(msgbuf+5+(int)msgbuf[3],localname);
     if ((i = send(sd,msgbuf,3+(int)msgbuf[0],0)) < 0) {
 		fprintf(stderr,"ERROR writing to socket (%d)\n",errno);
-		closesocket(sd);
+#ifdef WINDOWS
 		WSACleanup();
+		closesocket(sd);
+#else
+		close(sd);
+#endif
 		exit(0);
 	} else if (verbose) {
 		fprintf(stdout,"Wrote %d bytes to socket (join msg)\n",i);
 	}
 	
 	//BEGIN MAIN LOOP
+#ifdef WINDOWS
     if (!SetCommMask(hSerial, EV_RXCHAR)) {
         fprintf(stderr,"Error setting serial mask");
        // Error setting communications event mask
     } else {
+#else
+	if (1) {
+#endif
 		int frameindex = 0;
 		//FrameIndex:
 		//	0 = not in anything
@@ -317,8 +410,12 @@ int main(int argc, char *argv[])
 						case 'f':
 							if (0 >= (nextmsg = (char*)malloc(3+thisframesize))) {
 								fprintf(stderr,"Out of memory trying to enqueue a broadcast message\n");
-								closesocket(sd);
+#ifdef WINDOWS
 								WSACleanup();
+								closesocket(sd);
+#else
+								close(sd);
+#endif
 								exit(0);
 							}
 							memcpy(nextmsg,recvbuf,3+thisframesize);
@@ -333,17 +430,29 @@ int main(int argc, char *argv[])
 					pendbufsize -= 3+thisframesize;
 				}
 				
+#ifdef WINDOWS
 			} else if (i<0 && errno != WSAEWOULDBLOCK && errno != 0) {
+#else
+			} else if (i<0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+#endif
 				fprintf(stderr,"Fatal socket error probing for incoming data: %d,%d\n",i,errno);
-				closesocket(sd);
+#ifdef WINDOWS
 				WSACleanup();
+				closesocket(sd);
+#else
+				close(sd);
+#endif
 				exit(-1);
 			}
 			if (frameindex == 0) {
 				while (!sendbuf.empty()) {
 					char* thismsg = sendbuf.front();
 					short unsigned int thismsgsize = (unsigned char)thismsg[0]+256*(unsigned char)thismsg[1];
+#ifdef WINDOWS
                     if(!WriteFile(hSerial, thismsg+3, thismsgsize, &dwBytesRead, NULL)){
+#else
+					if (0 >= write(hSerial, thismsg+3, thismsgsize)) {
+#endif
                             //error occurred. Report to user.
                             fprintf(stderr, "Failed to write frame, type '%c', size '%d', to Arduino\n",thismsg[2],thismsgsize);
                             return -1;
@@ -369,10 +478,15 @@ int main(int argc, char *argv[])
 			}
 	//		if (WaitCommEvent(hSerial, &dwCommEvent, NULL)) {
 				do {
+					last = chRead;
+#ifdef WINDOWS
 					if (ReadFile(hSerial, &chRead, 1, &dwRead, NULL) && dwRead) {
+#else
+					if (0 < (dwRead = read(hSerial,&chRead,1))) {
+#endif
 						if (verbose) {
 							fakestring[0] = chRead;
-							fprintf(stdout,fakestring);
+							if (chRead != '\n') fprintf(stdout,"%s",fakestring);
 						}
 						if (chRead == '|') {
 							frameindex = 0;
@@ -401,7 +515,7 @@ int main(int argc, char *argv[])
 							if (frameindex >= 12 && fail == false) checkcalc(sender);
 							frameindex = 0;
 							nibble = 1;
-							if (verbose) fprintf(stdout,"\n");
+							if (verbose && last != '\n') fprintf(stdout,"\n");
 						} else if (chRead == 'f') {
 							frameindex = 0;
 							nibble = 1;
@@ -431,24 +545,32 @@ int main(int argc, char *argv[])
 								frameindex++;
 								if (frameindex == 12) {
 									datalenval = 256*datalen[1]+datalen[0];
+									if (datalenval > sizeof(data)) {
+										//invalid!
+										datalenval = 1;
+									}
 								}
 							}
 						}
 					}
-				} while (dwRead);
+				} while (dwRead > 0);
 //			}
 			
 		}
 	}
-	closesocket(sd);
+#ifdef WINDOWS
 	WSACleanup();
+	closesocket(sd);
+#else
+	close(sd);
+#endif
 	exit(0);
 }
 
 void print_usage(void)
 {
 	fprintf(stdout,"gCn Client v0.1\n(c) 2002-2010 Christopher \"Kerm Martian\" and Cemetech\nhttp://www.cemetech.net\n\n");
-	fprintf(stdout,"Syntax: %s -n <hub_name> -l <local_name> -c <COMport> -s <server_hostname> -p <server_port> [-v] [-h]\n");
+	fprintf(stdout,"Syntax: %s -n <hub_name> -l <local_name> -c <COMport> -s <server_hostname> -p <server_port> [-v] [-h]\n","gcnclient");
 	fprintf(stdout,"-n <hub_name>        Name of virtual hub to connect to on server\n");
 	fprintf(stdout,"-l <local_name>      Name for local endpoint connected to virtual hub\n");
 	fprintf(stdout,"-c <COMport>         Serial port for CALCnet2.2 connection, eg COM3\n");
@@ -485,8 +607,12 @@ void sendbroadcasttoserver(unsigned char* sender, unsigned char* datalen, short 
 	}
     if ((i = send(sd,msgbuf,3+(int)msgbuf[0],0)) < 0) {
 		fprintf(stderr,"ERROR writing to socket (%d)\n",errno);
-		closesocket(sd);
+#ifdef WINDOWS
 		WSACleanup();
+		closesocket(sd);
+#else
+		close(sd);
+#endif
 		exit(0);
 	} else if (verbose) {
 		fprintf(stdout,"Wrote %d bytes to socket (broadcast msg)\n",i);
@@ -521,8 +647,12 @@ void sendframetoserver(unsigned char* recipient, unsigned char* sender, unsigned
 	}
     if ((i = send(sd,msgbuf,3+(int)msgbuf[0],0)) < 0) {
 		fprintf(stderr,"ERROR writing to socket (%d)\n",errno);
-		closesocket(sd);
+#ifdef WINDOWS
 		WSACleanup();
+		closesocket(sd);
+#else
+		close(sd);
+#endif
 		exit(0);
 	} else if (verbose) {
 		fprintf(stdout,"Wrote %d bytes to socket (frame msg)\n",i);
@@ -554,8 +684,12 @@ void checkcalc(unsigned char* sender)
 	} else {
 		if (0 >= (tempptr = (struct calcknown*)malloc(sizeof(struct calcknown)))) {
 			fprintf(stderr,"Out of memory in checkcalc()!\n");
-			closesocket(sd);
+#ifdef WINDOWS
 			WSACleanup();
+			closesocket(sd);
+#else
+			close(sd);
+#endif
 			exit(-1);
 		}
 		prevptr->nextcalc = tempptr;
@@ -571,8 +705,12 @@ void checkcalc(unsigned char* sender)
 		sender[0],sender[1],sender[2],sender[3],sender[4]);
     if ((i = send(sd,msgbuf,3+(int)msgbuf[0],0)) < 0) {
 		fprintf(stderr,"ERROR writing to socket (%d)\n",errno);
-		closesocket(sd);
+#ifdef WINDOWS
 		WSACleanup();
+		closesocket(sd);
+#else
+		close(sd);
+#endif
 		exit(0);
 	} else if (verbose) {
 		fprintf(stdout,"Wrote %d bytes to socket (connect msg)\n",i);
